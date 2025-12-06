@@ -7,7 +7,7 @@ Made with effort and love from **Team 13.2**.
 
 ## Team's Members
 - Nhan Hữu Hiếu
-- 
+- Phạm Tấn Phát
 - Trần Huỳnh Gia Bảo
 
 >[!IMPORTANT]

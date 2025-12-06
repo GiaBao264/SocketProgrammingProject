@@ -14,10 +14,16 @@ class Server:
 		rtspSocket.listen(5)        
 
 		# Receive client info (address,port) through RTSP/TCP session
+
 		while True:
+			# Accept returns (conn, addr)
+			conn, addr = rtspSocket.accept()
 			clientInfo = {}
-			clientInfo['rtspSocket'] = rtspSocket.accept()
-			ServerWorker(clientInfo).run()		
+			clientInfo['rtspSocket'] = (conn, addr)
+			print(f"[Server] Accepted connection from {addr}")
+			# start worker thread to handle RTSP requests
+			ServerWorker(clientInfo).run()
+	
 
 if __name__ == "__main__":
 	(Server()).main()
