@@ -1,5 +1,5 @@
-from random import randint
-import sys, traceback, threading, socket
+﻿from random import randint
+import sys, traceback, threading, socket, time
 
 from VideoStream import VideoStream
 from RtpPacket import RtpPacket
@@ -21,8 +21,12 @@ class ServerWorker:
 	
 	clientInfo = {}
 	
+	rtpSeqNum = 0
+
 	def __init__(self, clientInfo):
 		self.clientInfo = clientInfo
+		self.rtpSeqNum = 0
+		self.frameTimestamp = 0
 		
 	def run(self):
 		threading.Thread(target=self.recvRtspRequest).start()
@@ -75,10 +79,13 @@ class ServerWorker:
 			if self.state == self.READY:
 				print("processing PLAY\n")
 				self.state = self.PLAYING
-				
+
+				self.rtpSeqNum = 0
+				self.frameTimestamp = 0
+
 				# Create a new socket for RTP/UDP
 				self.clientInfo["rtpSocket"] = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-				
+				self.clientInfo["rtpSocket"].setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4194304)  # 4MB buffer
 				self.replyRtsp(self.OK_200, seq[1])
 				
 				# Create a new thread and start sending RTP packets
@@ -91,29 +98,26 @@ class ServerWorker:
 			if self.state == self.PLAYING:
 				print("processing PAUSE\n")
 				self.state = self.READY
-				
 				self.clientInfo['event'].set()
-			
 				self.replyRtsp(self.OK_200, seq[1])
 		
 		# Process TEARDOWN request
 		elif requestType == self.TEARDOWN:
 			print("processing TEARDOWN\n")
-
 			self.clientInfo['event'].set()
-			
 			self.replyRtsp(self.OK_200, seq[1])
 			
 			# Close the RTP socket
 			self.clientInfo['rtpSocket'].close()
 			
 	def sendRtp(self):
-		"""Send RTP packets over UDP."""
+		"""Send RTP packets over UDP with HD fragmentation support."""
 		while True:
-			self.clientInfo['event'].wait(0.05) 
+			self.clientInfo['event'].wait(0.04)   
 			
 			# Stop sending if request is PAUSE or TEARDOWN
 			if self.clientInfo['event'].isSet(): 
+				print("=== Server stopped sending (PAUSE/TEARDOWN) ===")
 				break 
 				
 			data = self.clientInfo['videoStream'].nextFrame()
@@ -122,27 +126,52 @@ class ServerWorker:
 				try:
 					address = self.clientInfo['rtspSocket'][1][0]
 					port = int(self.clientInfo['rtpPort'])
-					self.clientInfo['rtpSocket'].sendto(self.makeRtp(data, frameNumber),(address,port))
-				except:
-					print("Connection Error")
-					#print('-'*60)
-					#traceback.print_exc(file=sys.stdout)
-					#print('-'*60)
+					
+					# Fragment large frame into packets =====
+					fragments = RtpPacket.fragmentPayload(data)
 
-	def makeRtp(self, payload, frameNbr):
-		"""RTP-packetize the video data."""
+					# Get timestamp for this frame (all fragments share same timestamp)
+					currentFrameTimestamp = self.frameTimestamp  # Lưu timestamp
+										
+					if len(fragments) > 1:
+						print(f"Frame {frameNumber}: {len(data)} bytes -> {len(fragments)} fragments, timestamp: {currentFrameTimestamp}")
+					
+					# Send all fragments with same timestamp
+					for i, fragment in enumerate(fragments):
+						# Mark the last fragment by marker bit = 1
+						isLastFragment = (i == len(fragments) - 1)
+						
+						# Create RTP packet with specific sequence number for each fragment
+						packet = self.makeRtp(fragment, self.rtpSeqNum, isLastFragment, currentFrameTimestamp)	
+						
+						# Send packet
+						self.clientInfo['rtpSocket'].sendto(packet, (address, port))
+						
+						# Increase sequence number
+						self.rtpSeqNum = (self.rtpSeqNum + 1) % 65536  # Handle wraparound
+
+					self.frameTimestamp += 3600
+						
+					# Small delay between fragments to avoid network overload
+					time.sleep(0.001)  
+					
+				except Exception as e:
+					print(f"Connection Error: {e}")
+					break
+
+	def makeRtp(self, payload, seqNum, isLastFragment=True, timestamp=None):
+		"""RTP-packetize the video data with fragmentation support."""
 		version = 2
 		padding = 0
 		extension = 0
 		cc = 0
-		marker = 0
+		marker = 1 if isLastFragment else 0  # Marker bit = 1 for the last fragment 
 		pt = 26 # MJPEG type
-		seqnum = frameNbr
 		ssrc = 0 
 		
 		rtpPacket = RtpPacket()
 		
-		rtpPacket.encode(version, padding, extension, cc, seqnum, marker, pt, ssrc, payload)
+		rtpPacket.encode(version, padding, extension, cc, seqNum, marker, pt, ssrc, payload, timestamp)
 		
 		return rtpPacket.getPacket()
 		

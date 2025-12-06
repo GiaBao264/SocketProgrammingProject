@@ -1,6 +1,7 @@
 import sys
 from time import time
 HEADER_SIZE = 12
+MAX_PAYLOAD_SIZE = 1400
 
 class RtpPacket:	
 	header = bytearray(HEADER_SIZE)
@@ -8,9 +9,13 @@ class RtpPacket:
 	def __init__(self):
 		pass
 		
-	def encode(self, version, padding, extension, cc, seqnum, marker, pt, ssrc, payload):
+	def encode(self, version, padding, extension, cc, seqnum, marker, pt, ssrc, payload, timestamp=None):
 		"""Encode the RTP packet with header fields and payload."""
-		timestamp = int(time())
+		if timestamp is None:
+			timestamp = int(time())
+		else:
+			timestamp = int(timestamp)
+
 		header = bytearray(HEADER_SIZE)
 
 		header[0] = (version << 6) | (padding << 5) | (extension << 4) | cc
@@ -51,6 +56,10 @@ class RtpPacket:
 		"""Return payload type."""
 		pt = self.header[1] & 127
 		return int(pt)
+
+	def marker(self):
+		"""Return marker bit (indicates last fragment of a frame)."""
+		return int((self.header[1] >> 7) & 1)
 	
 	def getPayload(self):
 		"""Return payload."""
@@ -59,3 +68,14 @@ class RtpPacket:
 	def getPacket(self):
 		"""Return RTP packet."""
 		return self.header + self.payload
+
+	@staticmethod
+	def fragmentPayload(payload, maxSize=MAX_PAYLOAD_SIZE):
+		"""Fragment large payload into smaller chunks."""
+		fragments = []
+		offset = 0
+		while offset < len(payload):
+			fragment = payload[offset:offset + maxSize]
+			fragments.append(fragment)
+			offset += maxSize
+		return fragments
