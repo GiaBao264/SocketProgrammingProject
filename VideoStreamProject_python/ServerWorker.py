@@ -45,7 +45,6 @@ class ServerWorker:
 	def processRtspRequest(self, data):
 		"""Process RTSP request sent from the client."""
 
-		# === BẮT ĐẦU đoạn code mới bạn cần dán ===
 		print("\n[ServerWorker] RTSP request received:")
 		print(data)
 
