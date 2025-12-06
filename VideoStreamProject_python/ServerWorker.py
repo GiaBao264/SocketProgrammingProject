@@ -37,22 +37,38 @@ class ServerWorker:
 		while True:            
 			data = connSocket.recv(256)
 			if data:
-				print("Data received:\n" + data.decode("utf-8"))
-				self.processRtspRequest(data.decode("utf-8"))
+				txt = data.decode("utf-8")
+				print("\n[ServerWorker] RTSP request received:")
+				print(txt)
+				self.processRtspRequest(txt)
 	
 	def processRtspRequest(self, data):
 		"""Process RTSP request sent from the client."""
-		# Get the request type
-		request = data.split('\n')
-		line1 = request[0].split(' ')
-		requestType = line1[0]
-		
-		# Get the media file name
-		filename = line1[1]
-		
-		# Get the RTSP sequence number 
-		seq = request[1].split(' ')
-		
+
+		# === BẮT ĐẦU đoạn code mới bạn cần dán ===
+		print("\n[ServerWorker] RTSP request received:")
+		print(data)
+
+		try:
+			request = data.split('\n')
+			line1 = request[0].split(' ')
+
+			requestType = line1[0] if len(line1) > 0 else None
+			filename = line1[1] if len(line1) > 1 else None
+
+			if len(request) > 1 and request[1].strip() != "":
+				seq = request[1].split(' ')
+			else:
+				seq = ["CSeq", "0"]
+
+		except Exception as e:
+			print(f"[ServerWorker] Failed to parse RTSP request: {e}")
+			print("[ServerWorker] Raw:", repr(data))
+			return
+
+		cseq_val = seq[1] if len(seq) > 1 else "N/A"
+		print(f"[ServerWorker] Parsed -> Type: {requestType}, File: {filename}, CSeq: {cseq_val}")
+	
 		# Process SETUP request
 		if requestType == self.SETUP:
 			if self.state == self.INIT:
@@ -178,11 +194,10 @@ class ServerWorker:
 	def replyRtsp(self, code, seq):
 		"""Send RTSP reply to the client."""
 		if code == self.OK_200:
-			#print("200 OK")
 			reply = 'RTSP/1.0 200 OK\nCSeq: ' + seq + '\nSession: ' + str(self.clientInfo['session'])
 			connSocket = self.clientInfo['rtspSocket'][0]
 			connSocket.send(reply.encode())
-		
+			print(f"[ServerWorker] Sent RTSP reply: 200 OK (CSeq: {seq})")
 		# Error messages
 		elif code == self.FILE_NOT_FOUND_404:
 			print("404 NOT FOUND")

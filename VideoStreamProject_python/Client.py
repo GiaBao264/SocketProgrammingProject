@@ -258,25 +258,43 @@ class Client:
 						# Reassemble complete frame
 						completeFrame = b''.join(frameFragments)
 						self.frameNbr += 1
-						
+
 						print(f"Frame {self.frameNbr}: {len(frameFragments)} fragment(s), {len(completeFrame)} bytes, timestamp: {timestamp}")
-						
-						# Update display
+
+						# --- DEBUG: write and inspect cache file before display ---
 						try:
 							imagePath = self.writeFrame(completeFrame)
+							print(f"[Client][listenRtp] writeFrame returned: {imagePath!r}")
 							if imagePath:
-								self.updateMovie(imagePath)
+								try:
+									import os
+									exists = os.path.exists(imagePath)
+									size = os.path.getsize(imagePath) if exists else "N/A"
+									print(f"[Client] cache exists: {exists}, size: {size} bytes")
+								except Exception as _:
+									pass
+
+								# Now call updateMovie (which we will make verbose)
+								try:
+									self.updateMovie(imagePath)
+								except Exception as e:
+									print(f"[Client][listenRtp] updateMovie raised exception: {e}")
+							else:
+								print("[Client][listenRtp] writeFrame returned None or empty")
 						except Exception as e:
-							print(f"Error displaying frame {self.frameNbr}: {e}")
-						
+							print(f"[Client][listenRtp] Error writing/displaying frame {self.frameNbr}: {e}")
+
 						# Update statistics
 						self.updateStats()
 						self.checkNetworkQuality()
-						
+
 						# Reset for next frame
 						frameFragments = []
 						currentTimestamp = None
 						self.lastFrameTime = time.time()
+
+					
+						
 
 			except socket.timeout:
 				consecutiveTimeouts += 1
@@ -385,17 +403,53 @@ class Client:
 			return None
 	
 	def updateMovie(self, imageFile):
-		"""Update the image file as video frame in the GUI."""
+		"""Debug version: open image, print info, then display."""
 		if imageFile is None:
+			print("[Client][updateMovie] imageFile is None")
 			return
 		try:
-			photo = ImageTk.PhotoImage(Image.open(imageFile))
-			w, h = Image.open(imageFile).size
-			self.label.configure(image=photo, height=h, width=w)
+			import os
+			print("[Client][updateMovie] trying to open:", imageFile, "exists:", os.path.exists(imageFile))
+			img = Image.open(imageFile)
+			print("[Client][updateMovie] opened image, size:", img.size, "mode:", img.mode)
+
+			# Max display size (tweak if desired)
+			MAX_W, MAX_H = 1280, 720
+			w, h = img.size
+			if w > MAX_W or h > MAX_H:
+				# choose resampling filter compatibly with Pillow version
+				try:
+					resample_filter = Image.Resampling.LANCZOS
+				except Exception:
+					if hasattr(Image, "LANCZOS"):
+						resample_filter = Image.LANCZOS
+					elif hasattr(Image, "ANTIALIAS"):
+						resample_filter = Image.ANTIALIAS
+					else:
+						# fallback to an integer value (PIL accepts int for filter in older versions)
+						resample_filter = 1
+				img.thumbnail((MAX_W, MAX_H), resample_filter)
+				print("[Client][updateMovie] thumbnail -> size:", img.size)
+				w, h = img.size
+
+			photo = ImageTk.PhotoImage(img)
+			self.label.configure(image=photo, width=w, height=h)
 			self.label.image = photo
+
+			# Force redraw, bring label to front
+			try:
+				self.label.lift()
+				self.label.update_idletasks()
+				self.label.update()
+			except Exception:
+				pass
+
+			print("[Client][updateMovie] displayed image successfully")
+
 		except Exception as e:
-			print(f"Error updating frame: {e}")
-		
+			print(f"[Client][updateMovie] ERROR opening/displaying image: {e}")
+
+			
 	def connectToServer(self):
 		"""Connect to the Server."""
 		self.rtspSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -434,6 +488,7 @@ class Client:
 		else:
 			return
 		
+		print(f"[Client] Sending RTSP request ->\n{request}")
 		self.rtspSocket.send(request.encode())
 		print(f'\nData sent:\n{request}\n')
 
@@ -513,7 +568,7 @@ class Client:
 			except Exception as e:
 				print("Error displaying frame from cache:", e)
 
-	\tdef handler(self):
+	def handler(self):
 		"""Handler on explicitly closing the GUI window."""
 		self.pauseMovie()
 		if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
